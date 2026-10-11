@@ -1,0 +1,11 @@
+// Android 宿主把本仓库作为子模块放到 flutter/ 后，在 settings.gradle 中加入：
+//
+// def flutterModule = new File(settingsDir, "flutter")
+// setBinding(new Binding([gradle: this]))
+// evaluate(new File(flutterModule, ".android/include_flutter.groovy"))
+//
+// 加入前先在子模块目录执行 flutter pub get，生成 .android。
+// app/build.gradle 依赖：implementation project(':flutter')
+//
+// 宿主启动 Engine 时传入 entrypointArgs = ["hosted"]，
+// 与 iOS 使用同一套路由。不传该参数时，flutter run 进入调试壳。

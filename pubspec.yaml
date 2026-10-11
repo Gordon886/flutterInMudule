@@ -1,0 +1,24 @@
+name: app_flutter
+description: 跨平台 Flutter 模块。登录与详情在此实现，可独立运行，也可嵌入 iOS 宿主。
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  module:
+    androidX: true
+    androidPackage: com.fluttermixin.app_flutter
+    iosBundleIdentifier: com.fluttermixin.appFlutter
