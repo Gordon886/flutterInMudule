@@ -19,6 +19,7 @@ abstract final class RouteIds {
   static const login = 'login';
   static const home = 'home';
   static const detail = 'detail';
+  static const deposit = 'deposit';
 }
 
 abstract final class RouteRegistry {
@@ -36,6 +37,11 @@ abstract final class RouteRegistry {
     RouteDefinition(
       id: RouteIds.detail,
       runtime: RouteRuntime.flutter,
+      presentation: RoutePresentation.push,
+    ),
+    RouteDefinition(
+      id: RouteIds.deposit,
+      runtime: RouteRuntime.native,
       presentation: RoutePresentation.push,
     ),
   ];

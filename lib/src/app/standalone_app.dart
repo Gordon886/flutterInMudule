@@ -40,8 +40,20 @@ class _StandaloneAppState extends State<StandaloneApp> {
     final page = switch (id) {
       RouteIds.home => HomePage(userName: userNameFrom(params)),
       RouteIds.detail => DetailPage(userName: userNameFrom(params)),
+      RouteIds.deposit => const _NativeRoutePage(title: '充值'),
       _ => const LoginPage(),
     };
     return MaterialPageRoute<RouteResult>(settings: settings, builder: (_) => page);
+  }
+}
+
+class _NativeRoutePage extends StatelessWidget {
+  const _NativeRoutePage({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(body: Center(child: Text('$title页面在 iOS 原生中打开')));
   }
 }

@@ -4,9 +4,14 @@ import 'package:app_flutter/src/features/home/presentation/widgets/home_image.da
 import 'package:flutter/material.dart';
 
 class HomeBannerView extends StatelessWidget {
-  const HomeBannerView({required this.banner, super.key});
+  const HomeBannerView({
+    required this.banner,
+    required this.onTap,
+    super.key,
+  });
 
   final HomeBanner banner;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +23,10 @@ class HomeBannerView extends StatelessWidget {
         metrics.s(24),
         0,
       ),
-      child: ClipRRect(
+      child: GestureDetector(
+        key: const Key('home-banner'),
+        onTap: onTap,
+        child: ClipRRect(
         borderRadius: BorderRadius.circular(metrics.s(16)),
         child: SizedBox(
           height: metrics.s(320),
@@ -139,6 +147,7 @@ class HomeBannerView extends StatelessWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

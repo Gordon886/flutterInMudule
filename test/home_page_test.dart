@@ -56,8 +56,12 @@ void main() {
     expect(find.text('HOME'), findsOneWidget);
     expect(find.text('DEPOSIT'), findsOneWidget);
 
+    await tester.tap(find.byKey(const Key('home-banner')));
+    await tester.pump();
+    expect(router.opened, ['deposit']);
+
     await tester.tap(find.byKey(const Key('home-signup')));
     await tester.pump();
-    expect(router.opened, ['login']);
+    expect(router.opened, ['deposit', 'login']);
   });
 }

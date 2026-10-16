@@ -118,7 +118,12 @@ class _HomeLobby extends StatelessWidget {
                       searchIcon: feed.search.icon,
                       onSelected: context.read<HomeCubit>().selectCategory,
                     ),
-                    HomeBannerView(banner: feed.banner),
+                    HomeBannerView(
+                      banner: feed.banner,
+                      onTap: () {
+                        RouterScope.of(context).open(RouteIds.deposit);
+                      },
+                    ),
                     for (
                       var index = 0;
                       index < feed.sections.length;

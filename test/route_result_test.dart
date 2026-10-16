@@ -7,6 +7,8 @@ void main() {
     expect(RouteRegistry.find(RouteIds.login)?.runtime, RouteRuntime.flutter);
     expect(RouteRegistry.find(RouteIds.home)?.runtime, RouteRuntime.flutter);
     expect(RouteRegistry.find(RouteIds.detail)?.presentation, RoutePresentation.push);
+    expect(RouteRegistry.find(RouteIds.deposit)?.runtime, RouteRuntime.native);
+    expect(RouteRegistry.find(RouteIds.deposit)?.presentation, RoutePresentation.push);
     expect(RouteRegistry.find('missing'), isNull);
   });
 
