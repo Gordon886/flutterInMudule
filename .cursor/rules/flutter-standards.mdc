@@ -1,0 +1,422 @@
+---
+description: Flutter 模块编码规范
+globs: "**/*.dart"
+alwaysApply: false
+---
+
+# Flutter 编码规范
+
+## 一、架构契约
+
+### 1.1 何时分层
+
+界面和数据分开。没有远程数据、也没有跨页面共享的状态时，只写 `presentation`，用 Widget 本地状态。不要为了凑齐目录去生成 Cubit、Repository、DTO 或国际化文件。
+
+文件夹随复杂度增长。一个目录里只有一两个文件时，留在已有层里。出现两个及以上需要单独存放的同类文件时，再新建子目录。
+
+下面标成「可选」的目录，在用到之前不要创建。
+
+```
+lib/
+├── features/<feature>/
+│   ├── presentation/                 # 始终存在
+│   │   ├── pages/
+│   │   ├── widgets/
+│   │   └── <flow>/                   # 有异步或跨页面状态时才建
+│   │       ├── <flow>_cubit.dart
+│   │       ├── <flow>_state.dart
+│   │       └── <flow>_event.dart     # 仅 Bloc
+│   ├── domain/                       # 可选。业务规则复杂到不适合留在 Cubit 时才建
+│   │   ├── models/
+│   │   ├── repositories/             # 抽象接口
+│   │   └── use_cases/                # 可选
+│   └── data/                         # 可选。有远程或本地数据时才建
+│       ├── dto/                      # 外部结构可能独立变化时才建
+│       ├── mappers/
+│       ├── datasources/
+│       └── repositories/             # Repository 实现
+└── core/                             # 跨 feature 共享，用到才建
+    ├── network/
+    ├── error/
+    └── di/
+```
+
+### 1.2 依赖方向
+
+有 domain / data 时：
+
+```
+Presentation → Domain ← Data
+```
+
+- **必须**：domain 不依赖其他层，不导入 Flutter SDK，不导入 Dio、Retrofit 等插件类型
+- **必须**：data 实现 domain 定义的接口
+- **必须**：presentation 依赖 domain 的抽象，不依赖 data 的实现类
+- **禁止**：再建一套平行目录（`application/`、`infrastructure/`、顶层 `viewmodels/`、`providers/`）
+
+### 1.3 与 iOS 宿主的边界
+
+页面跳转走统一路由，不走 Flutter 自己的页面栈。
+
+- **必须**：页面通过 `AppRouting`（`RouterScope`）按路由 ID 调用 `open` / `pop`
+- **必须**：Dart `RouteRegistry` 与 Swift `AppRoute` 成对修改，调用方只传路由 ID
+- **禁止**：`Navigator.push`、`Navigator.pop` 做跨页导航
+- **禁止**：页面引用 `MethodChannel`、具体 Engine，或写 `Platform.isIOS` 分支
+- `BlocListener` 需要离开当前页时，只调用 `router.open` / `router.pop`
+
+### 1.4 命名
+
+| 关注点 | 命名规则 | 位置 |
+|---|---|---|
+| Repository 接口 | `<Feature>Repository` | domain/repositories/ |
+| Repository 实现 | `<Feature>RepositoryImpl` | data/repositories/ |
+| DTO | `<Feature><Thing>Dto` | data/dto/ |
+| Mapper | `<feature>_<thing>_mapper.dart` | data/mappers/ |
+| Cubit | `<Feature><Flow>Cubit` | presentation/\<flow\>/ |
+| Page | `<Feature><Flow>Page` | presentation/pages/ |
+| 领域模型 | `<Feature><Entity>` | domain/models/ |
+
+- 文件名 **snake_case**
+- 类名 **UpperCamelCase**
+- 变量、方法 **lowerCamelCase**
+- `lib/` 内继续使用现有的包导入：`package:app_flutter/...`。不要改成相对路径
+
+
+## 二、状态管理（团队选型：Bloc + Cubit）
+
+Cubit / BLoC 只放在 presentation。这是本模块的选择，不是 Flutter SDK 的唯一方案。新功能不要再引入 Riverpod、Provider，或另外的 service locator 来管状态。
+
+### 2.1 怎么选
+
+| 场景 | 选择 |
+|---|---|
+| 直接调用方法，不需要事件队列 | **Cubit（默认）** |
+| 需要排序、节流、防抖、重试或多个事件源 | **Bloc** |
+| 真正的全局状态（同步、远程配置） | **应用级 Cubit / Bloc** |
+| 一个页面或一条流程 | **页面级 Cubit / Bloc** |
+| 只在当前 Widget 里切换、没有业务规则、也不共享 | **Widget 本地状态** |
+
+主题和语言优先用 `MaterialApp` 的 `themeMode`、`locale`。没有额外规则时不要再包一层 Cubit。
+
+### 2.2 State
+
+State 不可变。本模块用 **Freezed 3** 定义。二选一，不要两套叠在同一个流程上：
+
+- 字段稳定：一个对象 + `status` 枚举
+- 各状态的必填字段不同：Freezed 联合类型
+
+页面上真会出现的 loading、empty、success、error 才写进 State。不要为用不到的 offline、retry 预留字段。
+
+- State 暴露领域模型或视图数据，不暴露 DTO
+- 重复的界面判断做成 State 上的 getter
+- 派生数据放在 State 上，避免 Widget 里复制一套判断
+
+首次加载先进入 loading，再进入 success 或 error。刷新时保留已有数据，用 `refreshing` 而不是再次 `loading` 把内容清掉。
+
+### 2.3 模板
+
+```dart
+enum UserProfileStatus { initial, loading, refreshing, loaded, error }
+
+@freezed
+sealed class UserProfileState with _$UserProfileState {
+  const factory UserProfileState({
+    @Default(UserProfileStatus.initial) UserProfileStatus status,
+    UserProfile? profile,
+    Failure? failure,
+  }) = _UserProfileState;
+
+  const UserProfileState._();
+
+  bool get isLoading => status == UserProfileStatus.loading;
+  bool get hasData => profile != null;
+}
+```
+
+```dart
+@freezed
+sealed class CheckoutState with _$CheckoutState {
+  const factory CheckoutState.idle() = CheckoutIdle;
+  const factory CheckoutState.loading() = CheckoutLoading;
+  const factory CheckoutState.loaded({
+    required List<CartItem> items,
+    required double total,
+  }) = CheckoutLoaded;
+  const factory CheckoutState.error({required Failure failure}) = CheckoutError;
+}
+```
+
+```dart
+@injectable
+class UserProfileCubit extends Cubit<UserProfileState> {
+  UserProfileCubit(this._repository) : super(const UserProfileState());
+
+  final UserProfileRepository _repository;
+
+  Future<void> loadInitial() async {
+    emit(state.copyWith(status: UserProfileStatus.loading, failure: null));
+    await _fetch(UserProfileStatus.loaded);
+  }
+
+  Future<void> refresh() async {
+    if (!state.hasData) {
+      await loadInitial();
+      return;
+    }
+    emit(state.copyWith(status: UserProfileStatus.refreshing, failure: null));
+    await _fetch(UserProfileStatus.loaded);
+  }
+
+  Future<void> _fetch(UserProfileStatus success) async {
+    try {
+      final profile = await _repository.getProfile();
+      if (isClosed) return;
+      emit(state.copyWith(status: success, profile: profile, failure: null));
+    } on Failure catch (failure) {
+      if (isClosed) return;
+      emit(state.copyWith(status: UserProfileStatus.error, failure: failure));
+    }
+  }
+}
+```
+
+### 2.4 职责
+
+Cubit / Bloc 负责流程编排、校验和状态转换。它依赖 domain 或 core 的契约，不依赖 data 实现，不解析 DTO，不直接发网络请求，不持有 `BuildContext`。
+
+导航不写在 Cubit 里。可复用 Widget 通过回调把动作交出去。
+
+异步返回后先看 `isClosed`，或用 request id 丢掉过期结果，再 `emit`。`close()` 里取消 stream、timer 和 controller。
+
+Widget 不写业务规则。本地的选中、展开、输入中的草稿按 2.1 留在 Widget 里。日期和数字的展示格式可以留在 Widget。
+
+### 2.5 文件
+
+有 Cubit / Bloc 时，每个流程单独一个目录，并用 `part` / `part of` 把 event、state 收进 cubit 或 bloc 文件。只有 Bloc 才有 event 文件。
+
+```
+presentation/user_profile/
+├── user_profile_cubit.dart
+├── user_profile_state.dart
+└── user_profile_event.dart
+```
+
+### 2.6 Widget 里怎么用
+
+- `BlocBuilder` / `BlocSelector`：局部重建。大页面优先 `BlocSelector`
+- `BlocListener`：导航、SnackBar、Dialog。导航只能走 1.3 的路由
+- `BlocConsumer`：同一状态既要重建又有副作用时
+- `context.read<Cubit>().method()`：触发动作，不监听
+- `context.watch` 只在整个 `build` 都依赖这份状态时使用
+
+
+## 三、数据层
+
+外部或存储结构和领域模型会分开变化时，才建 DTO。两边形状相同就直接用领域模型，不强制加 Mapper。
+
+DTO 只描述外部格式，用 Freezed 3 + `json_serializable`。嵌套对象的 `explicit_to_json` 写在 `build.yaml`，不要散落在每个类上。
+
+```dart
+@freezed
+sealed class UserDto with _$UserDto {
+  const factory UserDto({
+    required String id,
+    required String name,
+    @JsonKey(name: 'created_at') DateTime? createdAt,
+    @JsonKey(name: 'avatar_url') String? avatarUrl,
+  }) = _UserDto;
+
+  factory UserDto.fromJson(Map<String, dynamic> json) => _$UserDtoFromJson(json);
+}
+```
+
+Mapper 放在 `data/mappers/`，一个 DTO 一个 extension 或类。嵌套对象逐层转换。枚举用 `@JsonValue`。
+
+- `fromJson` 测试只覆盖 JSON → DTO
+- Mapper 测试只覆盖 DTO → 领域模型
+
+```dart
+extension UserDtoX on UserDto {
+  User toEntity() => User(
+    id: id,
+    name: name,
+    createdAt: createdAt,
+    avatarUrl: avatarUrl,
+  );
+}
+```
+
+Repository 是模型的单一数据源，对上只返回领域模型。domain 定义 `<Feature>Repository`，data 实现 `<Feature>RepositoryImpl`。依赖通过构造函数传入。Repository 可以依赖多个 DataSource，不能依赖 Cubit 或 Widget。
+
+
+## 四、网络层（团队选型：Dio + Retrofit）
+
+有 HTTP 接口时才引入。Dio 做客户端，Retrofit 做类型安全的 API 声明。
+
+```dart
+@RestApi()
+abstract class UserApiService {
+  factory UserApiService(Dio dio) = _UserApiService;
+
+  @GET('/users/{id}')
+  Future<UserDto> getUser(@Path('id') String id);
+
+  @POST('/users')
+  Future<UserDto> createUser(@Body() CreateUserRequest request);
+}
+```
+
+- **禁止**在 Retrofit 方法里 try-catch
+- **禁止**手写 `jsonDecode`
+- **禁止**全局静态 Dio。由依赖注入提供
+- Base URL、环境和超时集中在 `AppNetworkConfig`
+
+拦截器只放这三类，位于 `core/network/interceptors/`：
+
+- **AuthInterceptor**：请求头注入 `Authorization`
+- **TokenRefreshInterceptor**：401 时刷新令牌。刷新必须单飞，刷新请求本身不能再次进入刷新
+- **LoggingInterceptor**：只在 debug 打开
+
+不要在拦截器里把 `DioException` 转成 `Failure`。转换放在 Repository。
+
+```
+DataSource (Retrofit) → DTO → Mapper → Domain Entity → Repository → Cubit → View
+```
+
+只有 Repository 持有 DataSource。Cubit 不接触 Dio 或 Retrofit Service。
+
+
+## 五、依赖注入（团队选型：get_it + injectable）
+
+出现需要注入的 Repository、Dio 或页面级 Cubit 时才接入。
+
+- 用 `@injectable` 生成注册，不手写 `getIt.register`
+- 构造函数注入。Widget 的 `build()` 里禁止 `getIt<T>()`
+- `BlocProvider.create` 或路由工厂里取页面级 Cubit，可以调用 `getIt`
+- 启动时在一个 composition root 完成注册
+- 实现类注册成抽象接口
+- 第三方实例（Dio、SharedPreferences）用 `@module`
+- 全局服务用 `@lazySingleton`
+- 页面级 Cubit 用 `@injectable`，每次进入页面一个新实例
+- 模块之间不要循环依赖
+
+
+## 六、错误处理
+
+全链路只用 `Failure`。不要再引入 `AppException` 或只剩一个 `errorMessage` 字符串。
+
+```dart
+sealed class Failure implements Exception {
+  const Failure({required this.message, this.cause, this.stackTrace});
+  final String message;
+  final Object? cause;
+  final StackTrace? stackTrace;
+}
+
+class ServerFailure extends Failure { /* ... */ }
+class NoInternetFailure extends Failure { /* ... */ }
+class TimeoutFailure extends Failure { /* ... */ }
+class CancellationFailure extends Failure { /* ... */ }
+class ParsingFailure extends Failure { /* ... */ }
+class UnknownFailure extends Failure { /* ... */ }
+```
+
+- Repository 捕获 `DioException`，抛出对应的 `Failure`
+- Cubit 捕获 `Failure`，放进 State
+- 界面按 `Failure` 的具体类型分支。给用户看的文案在 presentation 边界映射，domain 不出现插件异常
+
+
+## 七、国际化
+
+出现第二种语言，或文案不再直接采用设计稿原文时，用户可见文字放入 ARB，用 `flutter_localizations` + `intl`。在此之前允许把设计稿原文写在 Widget 里。
+
+日期、数字、货币用 `intl` 格式化。支持的语言写进 `supportedLocales`。
+
+
+## 八、代码风格（团队选型）
+
+Lint 基线使用 `very_good_analysis`。它和官方 `flutter_lints` 不同，切换时单独做一次迁移，不要在无关改动里顺手改完全部 import。
+
+保留包导入，覆盖 very_good 的相对路径规则：
+
+```yaml
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - "**/*.freezed.dart"
+    - "**/*.g.dart"
+    - "**/*.mocks.dart"
+
+linter:
+  rules:
+    prefer_relative_imports: false
+    avoid_relative_lib_imports: true
+```
+
+用到对应能力时再加入这些包。当前模块的 Dart SDK 是 `^3.11.0`。Freezed 保持 3.x，和上面的 `sealed class` 模板一致。Freezed 4 与 `very_good_analysis` 11 都要求 Dart `>=3.13`，升级 SDK 之前不要写进 `pubspec`。
+
+```yaml
+dependencies:
+  flutter_bloc: ^9.1.0
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.9.0
+  dio: ^5.7.0
+  retrofit: ^4.4.0
+  get_it: ^8.0.0
+  injectable: ^2.5.0
+
+dev_dependencies:
+  very_good_analysis: ^10.1.0
+  build_runner: ^2.4.0
+  freezed: ^3.2.0
+  json_serializable: ^6.9.0
+  retrofit_generator: ^10.0.0
+  injectable_generator: ^2.7.0
+```
+
+生成代码后执行 `dart format`。启用 very_good_analysis 之后，以它的检查结果为准。
+
+
+## 九、禁止事项
+
+| 禁止 | 原因 |
+|---|---|
+| 纯展示改动里生成整套 domain/data | 没有数据边界时不分层 |
+| Widget 里写业务规则 | 规则放在 Cubit；纯界面状态留在 Widget |
+| Cubit 使用 `BuildContext` | Cubit 不依赖界面 |
+| Cubit / BLoC 放进 domain 或 data | 状态管理只在 presentation |
+| `Navigator` 做跨页跳转 | 走 `AppRouting` 和路由 ID |
+| 页面依赖 MethodChannel 或 `Platform.isIOS` | 宿主差异由路由表决定 |
+| Retrofit 方法里 try-catch | 异常在 Repository 收成 `Failure` |
+| 手写 `jsonDecode` | 用生成的 DTO |
+| 全局静态 Dio | 依赖注入传入 |
+| 拦截器里把异常转成 `Failure` | 只在 Repository 转换 |
+| 刷新时用 loading 清掉已有数据 | 用 `refreshing` 保留内容 |
+| State 暴露 DTO | 只暴露领域模型或视图数据 |
+| `build()` 里调用 `getIt<T>()` | 构造函数或 `BlocProvider.create` |
+| 已有第二种语言后仍硬编码文案 | 放入 ARB |
+| 新功能改用 Riverpod / Provider 管状态 | 继续用 Cubit / Bloc |
+| 另起 application、infrastructure 等目录 | 使用第一节的分层 |
+
+
+## 十、修改代码时
+
+改文件前先读相关代码，按仓库里真实存在的结构改。
+
+只改任务需要的范围。规范里点名的依赖，只在这个功能用到该层时添加。布局、文案、样式的改动不引入 Cubit、Freezed、Retrofit 或 ARB。
+
+新增的数据功能再套用本文的 Cubit、State、DTO、Repository 模板，并放进对应目录。
+
+数据功能改完后核对：
+
+- [ ] 文件在正确的层，可选目录是因为这次用到了才出现
+- [ ] 依赖方向是 Presentation → Domain ← Data
+- [ ] 跨页跳转走 `AppRouting`，路由表两侧一起改
+- [ ] State 用 Freezed 3，不可变，失败信息是 `Failure`
+- [ ] 首次加载会进入 loading；刷新不会清掉已有数据
+- [ ] Cubit 没有 `BuildContext`
+- [ ] Widget 没有业务规则
+- [ ] Repository 返回领域模型
+- [ ] Retrofit 方法里没有 try-catch
+- [ ] `dart format` 通过；若已切换 lint，则同时通过 `very_good_analysis`

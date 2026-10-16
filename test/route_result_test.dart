@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('三端约定的路由都已注册', () {
     expect(RouteRegistry.find(RouteIds.login)?.runtime, RouteRuntime.flutter);
-    expect(RouteRegistry.find(RouteIds.home)?.runtime, RouteRuntime.native);
+    expect(RouteRegistry.find(RouteIds.home)?.runtime, RouteRuntime.flutter);
     expect(RouteRegistry.find(RouteIds.detail)?.presentation, RoutePresentation.push);
     expect(RouteRegistry.find('missing'), isNull);
   });

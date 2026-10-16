@@ -30,7 +30,7 @@ abstract final class RouteRegistry {
     ),
     RouteDefinition(
       id: RouteIds.home,
-      runtime: RouteRuntime.native,
+      runtime: RouteRuntime.flutter,
       presentation: RoutePresentation.replace,
     ),
     RouteDefinition(
